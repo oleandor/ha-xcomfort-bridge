@@ -6,7 +6,7 @@ from xcomfort.devices import Light
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
-    SUPPORT_BRIGHTNESS,
+    ColorMode,
     LightEntity,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -19,17 +19,9 @@ from .hub import XComfortHub
 
 _LOGGER = logging.getLogger(__name__)
 
-
 def log(msg: str):
     if VERBOSE:
         _LOGGER.info(msg)
-
-
-# PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-# 	vol.Required(CONF_IP_ADDRESS): cv.string,
-# 	vol.Required(CONF_AUTH_KEY): cv.string,
-# })
-
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -43,14 +35,13 @@ async def async_setup_entry(
 
     lights = list()
     for device in devices:
-        if isinstance(device,Light):
+        if isinstance(device, Light):
             _LOGGER.info(f"Adding {device}")
             light = HASSXComfortLight(hass, hub, device)
             lights.append(light)
 
     _LOGGER.info(f"Added {len(lights)} lights")
     async_add_entities(lights)
-
 
 class HASSXComfortLight(LightEntity):
     def __init__(self, hass: HomeAssistant, hub: XComfortHub, device: Light):
@@ -61,9 +52,6 @@ class HASSXComfortLight(LightEntity):
         self._name = device.name
         self._state = None
         self.device_id = device.device_id
-
-        # comp = hub.bridge.getComp(self._device._device["compId"])
-        # self.versionFW = comp["versionFW"]
 
         self._unique_id = f"light_{DOMAIN}_{hub.identifier}-{device.device_id}"
 
@@ -111,24 +99,25 @@ class HASSXComfortLight(LightEntity):
 
     @property
     def brightness(self):
-        """Return the brightness of the light.
-
-        This method is optional. Removing it indicates to Home Assistant
-        that brightness is not supported for this light.
-        """
-        return int(255.0 * self._state.dimmvalue / 99.0)
+        """Return the brightness of the light."""
+        if self._state and self._state.dimmvalue is not None:
+            return int(255.0 * self._state.dimmvalue / 99.0)
+        return None
 
     @property
     def is_on(self):
         """Return true if light is on."""
-        return self._state.switch
+        return self._state.switch if self._state else False
 
     @property
-    def supported_features(self):
-        """Flag supported features."""
-        if self._device.dimmable:
-            return SUPPORT_BRIGHTNESS
-        return 0
+    def supported_color_modes(self):
+        """Return supported color modes."""
+        return {ColorMode.BRIGHTNESS} if self._device.dimmable else {ColorMode.ONOFF}
+
+    @property
+    def color_mode(self):
+        """Return the color mode."""
+        return ColorMode.BRIGHTNESS if self._device.dimmable else ColorMode.ONOFF
 
     async def async_turn_on(self, **kwargs):
         log(f"async_turn_on {self._name} : {kwargs}")
@@ -141,7 +130,6 @@ class HASSXComfortLight(LightEntity):
             return
 
         switch_task = self._device.switch(True)
-        # switch_task = self.hub.bridge.switch_device(self.device_id,True)
         await switch_task
 
         self._state.switch = True
@@ -150,7 +138,6 @@ class HASSXComfortLight(LightEntity):
     async def async_turn_off(self, **kwargs):
         log(f"async_turn_off {self._name} : {kwargs}")
         switch_task = self._device.switch(False)
-        # switch_task = self.hub.bridge.switch_device(self.device_id,True)
         await switch_task
 
         self._state.switch = False

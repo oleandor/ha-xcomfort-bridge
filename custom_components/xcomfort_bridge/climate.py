@@ -7,34 +7,29 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.components.climate.const import (
-    CURRENT_HVAC_HEAT,
-    CURRENT_HVAC_IDLE,
-    HVAC_MODE_AUTO,
-    SUPPORT_TARGET_TEMPERATURE,
-    SUPPORT_PRESET_MODE,
+    HVACAction,
+    HVACMode,
+    ClimateEntityFeature,
     PRESET_ECO,
     PRESET_COMFORT,
 )
-from homeassistant.const import TEMP_CELSIUS
+from homeassistant.const import UnitOfTemperature
 
 from .hub import XComfortHub
 from .const import DOMAIN, VERBOSE
 
-SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
-
+# Replace SUPPORT_FLAGS with the ClimateEntityFeature enum
+SUPPORT_FLAGS = ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.PRESET_MODE
 
 _LOGGER = logging.getLogger(__name__)
-
 
 def log(msg: str):
     if VERBOSE:
         _LOGGER.info(msg)
 
-
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-
     hub = XComfortHub.get_hub(hass, entry)
 
     rooms = hub.rooms
@@ -43,20 +38,17 @@ async def async_setup_entry(
 
     rcts = list()
     for room in rooms:
-        if room.state.value is not None:
-            if room.state.value.setpoint is not None:
-                # _LOGGER.info(f"Adding {room}")
-                rct = HASSXComfortRcTouch(hass, hub, room)
-                rcts.append(rct)
+        if room.state.value is not None and room.state.value.setpoint is not None:
+            rct = HASSXComfortRcTouch(hass, hub, room)
+            rcts.append(rct)
 
     _LOGGER.info(f"Added {len(rcts)} rc touch units")
     async_add_entities(rcts)
     return
 
-
 class HASSXComfortRcTouch(ClimateEntity):
-    _attr_temperature_unit = TEMP_CELSIUS
-    _attr_hvac_modes = [HVAC_MODE_AUTO]
+    _attr_temperature_unit = UnitOfTemperature.CELSIUS
+    _attr_hvac_modes = [HVACMode.AUTO]
     _attr_supported_features = SUPPORT_FLAGS
 
     def __init__(self, hass: HomeAssistant, hub: XComfortHub, room: Room):
@@ -98,13 +90,15 @@ class HASSXComfortRcTouch(ClimateEntity):
     async def async_set_preset_mode(self, preset_mode):
         log(f"Set Preset mode {preset_mode}")
 
+        mode = None
         if preset_mode == "Cool":
             mode = RctMode.Cool
-        if preset_mode == PRESET_ECO:
+        elif preset_mode == PRESET_ECO:
             mode = RctMode.Eco
-        if preset_mode == PRESET_COMFORT:
+        elif preset_mode == PRESET_COMFORT:
             mode = RctMode.Comfort
-        if self.rctpreset != mode:
+
+        if mode and self.rctpreset != mode:
             await self._room.set_mode(mode)
             self.rctpreset = mode
             self.schedule_update_ha_state()
@@ -112,19 +106,11 @@ class HASSXComfortRcTouch(ClimateEntity):
     async def async_set_temperature(self, **kwargs):
         log(f"Set temperature {kwargs}")
 
-        # TODO: Move everything below into Room class in xcomfort-python library.
-        # Latest implementation in the base library is broken, so everything moved here
-        # To facilitate easier debugging inside HA.
-        # Also consider changing the `mode` object on RoomState class to be just a number,
-        # at current it is an object(possibly due to erroneous parsing of the 300/310-messages)
         setpoint = kwargs["temperature"]
-        setpointrange = self._room.bridge.rctsetpointallowedvalues[
-            RctMode(self.rctpreset)
-        ]
+        setpointrange = self._room.bridge.rctsetpointallowedvalues[RctMode(self.rctpreset)]
 
-        if setpointrange.Max < setpoint:
+        if setpoint > setpointrange.Max:
             setpoint = setpointrange.Max
-
         if setpoint < setpointrange.Min:
             setpoint = setpointrange.Min
 
@@ -138,9 +124,6 @@ class HASSXComfortRcTouch(ClimateEntity):
         await self._room.bridge.send_message(Messages.SET_HEATING_STATE, payload)
         self._room.modesetpoints[self.rctpreset] = setpoint
         self.currentsetpoint = setpoint
-        # After moving everything to base library, ideally line below should be the entry point
-        # into the library for setting target temperature.
-        # await self._room.set_target_temperature(kwargs["temperature"])
 
     @property
     def device_info(self):
@@ -154,12 +137,10 @@ class HASSXComfortRcTouch(ClimateEntity):
 
     @property
     def name(self):
-        """Return the display name of this light."""
         return self._name
 
     @property
     def unique_id(self):
-        """Return the unique ID."""
         return self._unique_id
 
     @property
@@ -168,40 +149,30 @@ class HASSXComfortRcTouch(ClimateEntity):
 
     @property
     def current_temperature(self):
-        """Return the current temperature."""
         return self.temperature
 
     @property
     def hvac_mode(self):
-        return HVAC_MODE_AUTO
+        return HVACMode.AUTO
 
     @property
     def current_humidity(self):
-        """Return the current humidity."""
         return int(self._state.humidity)
 
     @property
     def hvac_action(self):
-        if self._state.power > 0:
-            return CURRENT_HVAC_HEAT
-        else:
-            return CURRENT_HVAC_IDLE
+        return HVACAction.HEATING if self._state.power > 0 else HVACAction.IDLE
 
     @property
     def max_temp(self):
-        if self._state is None:
-            return 40.0
-        return self._room.bridge.rctsetpointallowedvalues[self.rctpreset].Max
+        return 40.0 if self._state is None else self._room.bridge.rctsetpointallowedvalues[self.rctpreset].Max
 
     @property
     def min_temp(self):
-        if self._state is None:
-            return 5.0
-        return self._room.bridge.rctsetpointallowedvalues[self.rctpreset].Min
+        return 5.0 if self._state is None else self._room.bridge.rctsetpointallowedvalues[self.rctpreset].Min
 
     @property
     def target_temperature(self):
-        """Returns the setpoint from RC touch, e.g. target_temperature"""
         return self.currentsetpoint
 
     @property

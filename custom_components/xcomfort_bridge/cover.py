@@ -7,12 +7,10 @@ from xcomfort.devices import Shade
 from homeassistant.components.cover import (
     ATTR_POSITION,
     CoverEntityFeature,
-    DEVICE_CLASS_SHADE,
     CoverEntity,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, VERBOSE
@@ -20,17 +18,9 @@ from .hub import XComfortHub
 
 _LOGGER = logging.getLogger(__name__)
 
-
 def log(msg: str):
     if VERBOSE:
         _LOGGER.info(msg)
-
-
-# PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
-# 	vol.Required(CONF_IP_ADDRESS): cv.string,
-# 	vol.Required(CONF_AUTH_KEY): cv.string,
-# })
-
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -67,7 +57,7 @@ class HASSXComfortShade(CoverEntity):
 
     @property
     def device_class(self):
-        return DEVICE_CLASS_SHADE
+        return "shade"
 
     async def async_added_to_hass(self):
         log(f"Added to hass {self._name} ")
